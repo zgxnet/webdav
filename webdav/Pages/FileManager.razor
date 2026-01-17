@@ -1,0 +1,376 @@
+@page "/"
+@using WebDav.Services
+@using webdav.Components
+@inject FileManagerService FileService
+@inject ILogger<FileManager> Logger
+@inject IJSRuntime JSRuntime
+
+<PageTitle>WebDAV File Manager</PageTitle>
+
+<div class="container">
+    <h1>File Manager</h1>
+    
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item">
+                <a href="#" @onclick="() => NavigateToPath(string.Empty)">Home</a>
+            </li>
+            @foreach (var part in GetBreadcrumbParts())
+            {
+                <li class="breadcrumb-item">
+                    <a href="#" @onclick="() => NavigateToPath(part.Path)">@part.Name</a>
+                </li>
+            }
+        </ol>
+    </nav>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    <div class="toolbar mb-3">
+        <button class="btn btn-primary" @onclick="ShowCreateFolderDialog">
+            <i class="bi bi-folder-plus"></i> New Folder
+        </button>
+        <label class="btn btn-success">
+            <i class="bi bi-upload"></i> Upload File
+            <InputFile OnChange="HandleFileUpload" multiple hidden />
+        </label>
+    </div>
+
+    @if (showCreateFolder)
+    {
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Create New Folder</h5>
+                <div class="input-group">
+                    <input type="text" class="form-control" @bind="newFolderName" placeholder="Folder name" />
+                    <button class="btn btn-primary" @onclick="CreateFolder">Create</button>
+                    <button class="btn btn-secondary" @onclick="() => showCreateFolder = false">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (files != null && files.Any())
+    {
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Size</th>
+                        <th>Last Modified</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var file in files)
+                    {
+                        <tr>
+                            <td>
+                                @if (file.IsDirectory)
+                                {
+                                    <i class="bi bi-folder-fill text-warning"></i>
+                                    <a href="#" @onclick="() => NavigateToPath(file.Path)">@file.Name</a>
+                                }
+                                else
+                                {
+                                    @if (FileService.IsImage(file.Name))
+                                    {
+                                        <i class="bi bi-file-earmark-image text-primary"></i>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-file-earmark"></i>
+                                    }
+                                    @if (FileService.IsPreviewable(file.Name))
+                                    {
+                                        <a href="#" @onclick="() => PreviewFile(file.Path, file.Name)">@file.Name</a>
+                                    }
+                                    else
+                                    {
+                                        <span>@file.Name</span>
+                                    }
+                                }
+                            </td>
+                            <td>
+                                @if (!file.IsDirectory)
+                                {
+                                    @FileService.FormatFileSize(file.Size)
+                                }
+                            </td>
+                            <td>@file.LastModified.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td>
+                                @if (!file.IsDirectory)
+                                {
+                                    @if (FileService.IsPreviewable(file.Name))
+                                    {
+                                        <button class="btn btn-sm btn-primary" @onclick="() => PreviewFile(file.Path, file.Name)" title="Preview">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    }
+                                    <button class="btn btn-sm btn-info" @onclick="() => DownloadFile(file.Path)">
+                                        <i class="bi bi-download"></i>
+                                    </button>
+                                }
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteItem(file.Path, file.Name)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            This folder is empty.
+        </div>
+    }
+</div>
+
+<FilePreview 
+    IsVisible="@showPreview" 
+    FileName="@previewFileName" 
+    FileExtension="@previewFileExtension"
+    Content="@previewContent"
+    ImageData="@previewImageData"
+    IsImage="@isPreviewImage"
+    OnClose="@ClosePreview" />
+
+@code {
+    private List<FileManagerService.FileItem>? files;
+    private string currentPath = string.Empty;
+    private bool isLoading = true;
+    private bool showCreateFolder = false;
+    private string newFolderName = string.Empty;
+    private string? errorMessage;
+    private string? successMessage;
+
+    // Preview state
+    private bool showPreview = false;
+    private string previewFileName = string.Empty;
+    private string previewFileExtension = string.Empty;
+    private string previewContent = string.Empty;
+    private string previewImageData = string.Empty;
+    private bool isPreviewImage = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFiles();
+    }
+
+    private async Task LoadFiles()
+    {
+        try
+        {
+            isLoading = true;
+            files = await FileService.GetFilesAsync(currentPath);
+            errorMessage = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading files");
+            errorMessage = $"Error loading files: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task NavigateToPath(string path)
+    {
+        currentPath = path;
+        await LoadFiles();
+    }
+
+    private void ShowCreateFolderDialog()
+    {
+        showCreateFolder = true;
+        newFolderName = string.Empty;
+    }
+
+    private async Task CreateFolder()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(newFolderName))
+            {
+                errorMessage = "Folder name cannot be empty";
+                return;
+            }
+
+            await FileService.CreateDirectoryAsync(currentPath, newFolderName);
+            successMessage = $"Folder '{newFolderName}' created successfully";
+            showCreateFolder = false;
+            newFolderName = string.Empty;
+            await LoadFiles();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating folder");
+            errorMessage = $"Error creating folder: {ex.Message}";
+        }
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            foreach (var file in e.GetMultipleFiles())
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024); // 100MB max
+                await FileService.UploadFileAsync(currentPath, file.Name, stream);
+            }
+            
+            successMessage = $"{e.FileCount} file(s) uploaded successfully";
+            await LoadFiles();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error uploading file");
+            errorMessage = $"Error uploading file: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteItem(string path, string name)
+    {
+        try
+        {
+            if (await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{name}'?"))
+            {
+                await FileService.DeleteAsync(path);
+                successMessage = $"'{name}' deleted successfully";
+                await LoadFiles();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting item");
+            errorMessage = $"Error deleting item: {ex.Message}";
+        }
+    }
+
+    private async Task DownloadFile(string path)
+    {
+        try
+        {
+            var stream = await FileService.DownloadFileAsync(path);
+            if (stream != null)
+            {
+                var fileName = Path.GetFileName(path);
+                using var streamRef = new DotNetStreamReference(stream);
+                await JSRuntime.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading file");
+            errorMessage = $"Error downloading file: {ex.Message}";
+        }
+    }
+
+    private List<(string Name, string Path)> GetBreadcrumbParts()
+    {
+        if (string.IsNullOrEmpty(currentPath))
+            return new List<(string, string)>();
+
+        var parts = new List<(string, string)>();
+        var segments = currentPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var accumulatedPath = string.Empty;
+
+        foreach (var segment in segments)
+        {
+            if (!string.IsNullOrEmpty(segment))
+            {
+                accumulatedPath = string.IsNullOrEmpty(accumulatedPath) 
+                    ? segment 
+                    : Path.Combine(accumulatedPath, segment);
+                parts.Add((segment, accumulatedPath));
+            }
+        }
+
+        return parts;
+    }
+
+    private async Task PreviewFile(string path, string fileName)
+    {
+        try
+        {
+            previewFileName = fileName;
+            previewFileExtension = FileService.GetFileExtension(fileName);
+            isPreviewImage = FileService.IsImage(fileName);
+            showPreview = true;
+            
+            StateHasChanged(); // Force UI update
+            
+            if (isPreviewImage)
+            {
+                // Load image as base64 data URL
+                var imageBytes = await FileService.ReadFileAsBytesAsync(path);
+                if (imageBytes != null)
+                {
+                    var mimeType = FileService.GetMimeType(fileName);
+                    var base64 = Convert.ToBase64String(imageBytes);
+                    previewImageData = $"data:{mimeType};base64,{base64}";
+                    previewContent = string.Empty;
+                }
+                else
+                {
+                    previewImageData = string.Empty;
+                    previewContent = "Unable to load image. File may be too large (max 10MB).";
+                }
+            }
+            else
+            {
+                // Load text content
+                previewContent = "Loading...";
+                previewImageData = string.Empty;
+                var content = await FileService.ReadFileContentAsync(path);
+                previewContent = content ?? "Unable to load file content.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error previewing file");
+            previewContent = $"Error loading preview: {ex.Message}";
+            previewImageData = string.Empty;
+        }
+    }
+
+    private async Task ClosePreview()
+    {
+        showPreview = false;
+        previewContent = string.Empty;
+        previewFileName = string.Empty;
+        previewFileExtension = string.Empty;
+        previewImageData = string.Empty;
+        isPreviewImage = false;
+        StateHasChanged(); // Force UI update
+        await Task.CompletedTask;
+    }
+}

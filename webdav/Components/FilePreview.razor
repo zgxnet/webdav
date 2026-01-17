@@ -1,0 +1,143 @@
+@using Microsoft.JSInterop
+@using WebDav.Services
+@using Microsoft.AspNetCore.Components.Web
+
+@if (IsVisible)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);" @onclick="CloseOnBackdrop">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-eye"></i> Preview: @FileName
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="Close" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    @if (isLoading)
+                    {
+                        <div class="text-center p-4">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    }
+                    else if (IsImage)
+                    {
+                        <div class="image-preview-container">
+                            @if (!string.IsNullOrEmpty(ImageData))
+                            {
+                                <img src="@ImageData" alt="@FileName" class="preview-image" />
+                            }
+                            else
+                            {
+                                <div class="alert alert-warning">
+                                    Unable to load image.
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(Content))
+                    {
+                        @if (IsMarkdown)
+                        {
+                            <div class="markdown-preview">
+                                @((MarkupString)RenderMarkdown(Content))
+                            </div>
+                        }
+                        else
+                        {
+                            <pre class="code-preview"><code class="language-@FileExtension">@Content</code></pre>
+                        }
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning">
+                            Unable to load file content.
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <span class="text-muted me-auto">
+                        @FileExtension.ToUpper() file
+                        @if (IsImage && !string.IsNullOrEmpty(ImageData))
+                        {
+                            <span class="ms-2">? Image</span>
+                        }
+                    </span>
+                    <button type="button" class="btn btn-secondary" @onclick="Close">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    [Parameter]
+    public string FileName { get; set; } = string.Empty;
+
+    [Parameter]
+    public string FileExtension { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Content { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ImageData { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool IsImage { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private bool isLoading = false;
+
+    private bool IsMarkdown => FileExtension is "md" or "markdown";
+
+    private async Task Close()
+    {
+        if (OnClose.HasDelegate)
+        {
+            await OnClose.InvokeAsync();
+        }
+    }
+
+    private async Task CloseOnBackdrop()
+    {
+        // Close when clicking on the backdrop (dark overlay)
+        await Close();
+    }
+
+    private string RenderMarkdown(string markdown)
+    {
+        // Basic markdown rendering without external libraries
+        // For a more robust solution, consider using Markdig library
+        var html = markdown;
+
+        // Headers
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"^### (.+)$", "<h3>$1</h3>", System.Text.RegularExpressions.RegexOptions.Multiline);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"^## (.+)$", "<h2>$1</h2>", System.Text.RegularExpressions.RegexOptions.Multiline);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"^# (.+)$", "<h1>$1</h1>", System.Text.RegularExpressions.RegexOptions.Multiline);
+
+        // Bold and Italic
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\*\*(.+?)\*\*", "<strong>$1</strong>");
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\*(.+?)\*", "<em>$1</em>");
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"__(.+?)__", "<strong>$1</strong>");
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"_(.+?)_", "<em>$1</em>");
+
+        // Code blocks
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"`(.+?)`", "<code>$1</code>");
+
+        // Links
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\[(.+?)\]\((.+?)\)", "<a href=\"$2\">$1</a>");
+
+        // Line breaks
+        html = html.Replace("\n\n", "</p><p>").Replace("\n", "<br/>");
+
+        return $"<div class='markdown-content'><p>{html}</p></div>";
+    }
+}
