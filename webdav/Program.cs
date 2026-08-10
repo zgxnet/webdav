@@ -2,12 +2,29 @@ using WebDav.Models;
 using WebDav.Services;
 using WebDav.Middleware;
 using NWebDav.Server;
+using NWebDav.Server.Stores;
 
-var builder = WebApplication.CreateBuilder(args);
+const string windowsServiceSwitch = "--windows-service";
+var runAsWindowsService = args.Any(argument =>
+    string.Equals(argument, windowsServiceSwitch, StringComparison.OrdinalIgnoreCase));
+var applicationArgs = args
+    .Where(argument => !string.Equals(argument, windowsServiceSwitch, StringComparison.OrdinalIgnoreCase))
+    .ToArray();
+
+var builder = WebApplication.CreateBuilder(applicationArgs);
+
+if (runAsWindowsService && OperatingSystem.IsWindows())
+{
+    builder.Host.UseWindowsService();
+}
 
 // Configure logging
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
+if (runAsWindowsService && OperatingSystem.IsWindows())
+{
+    WebDav.WindowsServiceLogging.Add(builder.Logging);
+}
 if (builder.Environment.IsDevelopment())
 {
     builder.Logging.SetMinimumLevel(LogLevel.Debug);
@@ -16,12 +33,31 @@ if (builder.Environment.IsDevelopment())
 // Load WebDAV configuration
 var webDavConfig = builder.Configuration.GetSection("WebDav").Get<WebDavConfig>() ?? new WebDavConfig();
 
-// Validate and setup directory
+// Validate and setup directories
 var rootDirectory = Path.GetFullPath(webDavConfig.Directory);
-if (!Directory.Exists(rootDirectory))
+var rootPoints = webDavConfig.RootPoints
+    .Select(point => new DiskStoreRootPoint
+    {
+        Path = point.Path,
+        Directory = Path.GetFullPath(point.Directory)
+    })
+    .ToList();
+
+if (rootPoints.Count == 0 && !Directory.Exists(rootDirectory))
 {
     Directory.CreateDirectory(rootDirectory);
     Console.WriteLine($"Created directory: {rootDirectory}");
+}
+else
+{
+    foreach (var rootPoint in rootPoints)
+    {
+        if (!Directory.Exists(rootPoint.Directory))
+        {
+            Directory.CreateDirectory(rootPoint.Directory);
+            Console.WriteLine($"Created directory for '{rootPoint.Path}': {rootPoint.Directory}");
+        }
+    }
 }
 
 // Configure services
@@ -43,12 +79,25 @@ builder.Services.AddNWebDav(options =>
     options.RequireAuthentication = false; // We handle auth in our custom middleware
 });
 
-// Configure DiskStore with the root directory
-builder.Services.AddDiskStore(options =>
+// Configure the store with either one directory or multiple DAV root points
+if (rootPoints.Count == 0)
 {
-    options.BaseDirectory = rootDirectory;
-    options.IsWritable = true;
-});
+    builder.Services.AddDiskStore(options =>
+    {
+        options.BaseDirectory = rootDirectory;
+        options.IsWritable = true;
+    });
+}
+else
+{
+    builder.Services.AddSingleton<DiskStoreCollectionPropertyManager>();
+    builder.Services.AddSingleton<DiskStoreItemPropertyManager>();
+    builder.Services.AddSingleton<IStore>(sp => new MultiRootDiskStore(
+        new MultiRootDiskStoreOptions { RootPoints = rootPoints, IsWritable = true },
+        sp.GetRequiredService<DiskStoreCollectionPropertyManager>(),
+        sp.GetRequiredService<DiskStoreItemPropertyManager>(),
+        sp.GetRequiredService<ILoggerFactory>()));
+}
 
 // Configure CORS if enabled
 if (webDavConfig.Cors.Enabled)
@@ -155,7 +204,10 @@ app.MapFallbackToPage("/_Host");
 
 logger.LogInformation("WebDAV server starting on {Address}:{Port} with prefix '{Prefix}'", 
     webDavConfig.Address, webDavConfig.Port, webDavConfig.Prefix);
-logger.LogInformation("Serving directory: {Directory}", rootDirectory);
+if (rootPoints.Count == 0)
+    logger.LogInformation("Serving directory: {Directory}", rootDirectory);
+else
+    logger.LogInformation("Serving {RootPointCount} DAV root points: {RootPoints}", rootPoints.Count, string.Join(", ", rootPoints.Select(point => $"{point.Path}={point.Directory}")));
 logger.LogInformation("Blazor file manager UI available at {Protocol}://{Address}:{Port}/", 
     protocol, webDavConfig.Address, webDavConfig.Port);
 logger.LogInformation("WebDAV endpoint available at {Protocol}://{Address}:{Port}{Prefix}", 

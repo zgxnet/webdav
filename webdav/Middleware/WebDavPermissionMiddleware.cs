@@ -1,6 +1,7 @@
 using NWebDav.Server;
 using NWebDav.Server.Helpers;
 using NWebDav.Server.Stores;
+using WebDav.Models;
 using WebDav.Services;
 
 namespace WebDav.Middleware;
@@ -9,13 +10,16 @@ public class WebDavPermissionMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<WebDavPermissionMiddleware> _logger;
+    private readonly WebDavConfig _config;
 
     public WebDavPermissionMiddleware(
         RequestDelegate next,
-        ILogger<WebDavPermissionMiddleware> logger)
+        ILogger<WebDavPermissionMiddleware> logger,
+        WebDavConfig config)
     {
         _next = next;
         _logger = logger;
+        _config = config;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -64,7 +68,9 @@ public class WebDavPermissionMiddleware
                 {
                     try
                     {
-                        var fullPath = Path.Combine(user.Directory, filePath.TrimStart('/'));
+                        var fullPath = user.UsesRootPoints
+                            ? _config.ResolvePath(filePath)
+                            : Path.Combine(user.Directory, filePath.TrimStart('/'));
                         return File.Exists(fullPath) || Directory.Exists(fullPath);
                     }
                     catch (Exception ex)

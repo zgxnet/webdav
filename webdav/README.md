@@ -56,6 +56,7 @@ The server can be configured via `appsettings.json` or `appsettings.Development.
     "NoPassword": false,
     "BehindProxy": false,
     "Directory": "./data",
+    "RootPoints": [],
     "Permissions": "R",
     "RulesBehavior": "overwrite",
     "Users": [
@@ -80,6 +81,53 @@ The server can be configured via `appsettings.json` or `appsettings.Development.
 }
 ```
 
+#### Single Directory
+
+For a single local directory, configure `Directory` and leave `RootPoints` empty:
+
+```json
+{
+  "WebDav": {
+    "Prefix": "/dav",
+    "Directory": "./data",
+    "RootPoints": []
+  }
+}
+```
+
+The directory is available directly at `/dav/`. Relative paths are resolved from the server's working directory.
+
+#### Multiple Root Points
+
+To expose multiple local directories in one WebDAV endpoint, configure a named `Path` for each local `Directory`:
+
+```json
+{
+  "WebDav": {
+    "Prefix": "/dav",
+    "RootPoints": [
+      {
+        "Path": "documents",
+        "Directory": "/var/webdav/documents"
+      },
+      {
+        "Path": "backups",
+        "Directory": "/var/webdav/backups"
+      }
+    ]
+  }
+}
+```
+
+The mapping is:
+
+| DAV path | Local directory |
+| --- | --- |
+| `/dav/documents/` | `/var/webdav/documents` |
+| `/dav/backups/` | `/var/webdav/backups` |
+
+When `RootPoints` is configured, it replaces `Directory`. The server creates a configured local directory if it does not already exist. For users in this mode, omit the per-user `Directory`; permissions and rules still apply to the DAV paths, including the root point name.
+
 ### Configuration Options
 
 - **Address**: IP address to bind to (default: `0.0.0.0`)
@@ -93,6 +141,14 @@ The server can be configured via `appsettings.json` or `appsettings.Development.
 - **NoPassword**: Disable password checking (default: `false`)
 - **BehindProxy**: Trust X-Forwarded-For header (default: `false`)
 - **Directory**: Root directory to serve (default: `./data`)
+- **RootPoints**: Optional named directories mounted below the DAV root. When set, each item must contain a DAV `Path` and local `Directory`; for example:
+  ```json
+  "RootPoints": [
+    { "Path": "documents", "Directory": "/srv/documents" },
+    { "Path": "backups", "Directory": "/srv/backups" }
+  ]
+  ```
+  These are available at `/dav/documents` and `/dav/backups`. Leave `RootPoints` empty to use `Directory`.
 - **Permissions**: Default permissions (default: `R`)
   - `C` - Create
   - `R` - Read

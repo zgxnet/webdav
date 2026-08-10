@@ -9,6 +9,11 @@
   <ItemGroup>
     <ProjectReference Include="..\NWebDav.Server\NWebDav.Server.csproj" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="install-service.ps1" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

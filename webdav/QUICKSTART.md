@@ -27,6 +27,7 @@ Update `appsettings.json` with your configuration:
     "Port": 6065,
     "Prefix": "/dav",
     "Directory": "/var/webdav/data",
+    "RootPoints": [],
     "Users": [
       {
         "Username": "myuser",
@@ -37,6 +38,22 @@ Update `appsettings.json` with your configuration:
   }
 }
 ```
+
+To expose multiple local directories in one DAV endpoint, configure named root points instead of `Directory`:
+
+```json
+{
+  "WebDav": {
+    "Prefix": "/dav",
+    "RootPoints": [
+      { "Path": "documents", "Directory": "/var/webdav/documents" },
+      { "Path": "backups", "Directory": "/var/webdav/backups" }
+    ]
+  }
+}
+```
+
+The directories are available at `/dav/documents` and `/dav/backups`. Users using the configured root points should omit their per-user `Directory`.
 
 Run:
 ```bash

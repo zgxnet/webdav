@@ -27,6 +27,24 @@ public class FileManagerService
     {
         try
         {
+            if (_config.RootPoints.Count > 0 && string.IsNullOrWhiteSpace(relativePath))
+            {
+                return _config.RootPoints
+                    .Select(point =>
+                    {
+                        var directory = new DirectoryInfo(Path.GetFullPath(point.Directory));
+                        return new FileItem
+                        {
+                            Name = point.Path.Trim('/', Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            Path = point.Path.Trim('/', Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            IsDirectory = true,
+                            LastModified = directory.Exists ? directory.LastWriteTime : DateTime.MinValue
+                        };
+                    })
+                    .OrderBy(point => point.Name)
+                    .ToList();
+            }
+
             var fullPath = GetFullPath(relativePath);
             if (!Directory.Exists(fullPath))
             {
@@ -98,6 +116,9 @@ public class FileManagerService
     {
         try
         {
+            if (IsRootPoint(relativePath))
+                throw new SecurityException("Deleting a configured root point is not allowed");
+
             var fullPath = GetFullPath(relativePath);
             
             if (Directory.Exists(fullPath))
@@ -175,25 +196,25 @@ public class FileManagerService
     {
         try
         {
-            var rootDirectory = Path.GetFullPath(_config.Directory);
-            if (string.IsNullOrEmpty(relativePath))
-                return rootDirectory;
-
-            var fullPath = Path.GetFullPath(Path.Combine(rootDirectory, relativePath));
-            
-            // Security check: ensure the path is within the root directory
-            if (!fullPath.StartsWith(rootDirectory, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new SecurityException($"Access to path '{relativePath}' is denied");
-            }
-
-            return fullPath;
+            return _config.ResolvePath(relativePath);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resolving full path for: {Path}", relativePath);
             throw;
         }
+    }
+
+    private bool IsRootPoint(string relativePath)
+    {
+        var normalizedPath = relativePath
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+            .Trim(Path.DirectorySeparatorChar);
+
+        return _config.RootPoints.Any(point => string.Equals(
+            point.Path.Trim('/', Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            normalizedPath,
+            StringComparison.OrdinalIgnoreCase));
     }
 
     public string FormatFileSize(long bytes)

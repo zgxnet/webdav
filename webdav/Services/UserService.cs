@@ -14,6 +14,7 @@ public class UserService
         public string Username { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
         public string Directory { get; set; } = string.Empty;
+        public bool UsesRootPoints { get; set; }
         public PermissionService.UserPermissions Permissions { get; set; } = new();
 
         public bool CheckPassword(string input)
@@ -42,6 +43,7 @@ public class UserService
                     Username = user.Username,
                     Password = ResolveEnvVariable(user.Password),
                     Directory = Path.GetFullPath(user.Directory ?? config.Directory),
+                    UsesRootPoints = user.Directory == null && config.RootPoints.Count > 0,
                     Permissions = BuildUserPermissions(user, config, logger)
                 };
 
