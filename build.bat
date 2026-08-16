@@ -13,7 +13,7 @@ if exist "%PUB_DIR%" (
 )
 
 echo Publishing webdav with profile win.pubxml ...
-dotnet msbuild "%~dp0webdav\webdav.csproj" -p:DeployOnBuild=true -p:Configuration=Release -p:PublishProfile=win
+dotnet publish "%~dp0webdav\webdav.csproj" -c Release -p:PublishProfile=win -o "%PUB_DIR%"
 if errorlevel 1 (
     echo Publish failed.
     exit /b 1
