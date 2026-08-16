@@ -179,6 +179,20 @@ if (webDavConfig.Cors.Enabled)
 app.UseStaticFiles();
 app.UseRouting();
 
+app.MapGet("/api/thumbnail", async (
+    string path,
+    FileManagerService fileService,
+    HttpContext context,
+    CancellationToken cancellationToken) =>
+{
+    var thumbnail = await fileService.CreateThumbnailAsync(path, cancellationToken);
+    if (thumbnail == null)
+        return Results.NotFound();
+
+    context.Response.Headers.CacheControl = "private, max-age=31536000, immutable";
+    return Results.File(thumbnail.Content, thumbnail.ContentType);
+});
+
 // Apply Blazor authentication for non-WebDAV paths
 app.UseWhen(
     context => !context.Request.Path.StartsWithSegments(webDavConfig.Prefix),

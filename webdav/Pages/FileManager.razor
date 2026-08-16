@@ -48,6 +48,16 @@
             <i class="bi bi-upload"></i> Upload File
             <InputFile OnChange="HandleFileUpload" multiple hidden />
         </label>
+        <div class="btn-group view-switcher" role="group" aria-label="View mode">
+            <button type="button" class="btn btn-outline-secondary @(previewMode ? null : "active")"
+                    @onclick="() => previewMode = false" title="Details view" aria-pressed="@(!previewMode)">
+                <i class="bi bi-list-ul"></i> Details
+            </button>
+            <button type="button" class="btn btn-outline-secondary @(previewMode ? "active" : null)"
+                    @onclick="() => previewMode = true" title="Large icons view" aria-pressed="@previewMode">
+                <i class="bi bi-grid-3x3-gap"></i> Large icons
+            </button>
+        </div>
     </div>
 
     @if (showCreateFolder)
@@ -74,7 +84,9 @@
     }
     else if (files != null && files.Any())
     {
-        <div class="table-responsive">
+        @if (!previewMode)
+        {
+            <div class="table-responsive">
             <table class="table table-hover">
                 <thead>
                     <tr>
@@ -142,7 +154,67 @@
                     }
                 </tbody>
             </table>
-        </div>
+            </div>
+        }
+        else
+        {
+            <div class="file-grid">
+                @foreach (var file in files)
+                {
+                    <article class="file-tile" title="@file.Name">
+                        <div class="file-tile-visual">
+                            @if (file.IsDirectory)
+                            {
+                                <button type="button" class="file-tile-open" @onclick="() => NavigateToPath(file.Path)" aria-label="Open @file.Name">
+                                    <i class="bi bi-folder-fill file-tile-folder"></i>
+                                </button>
+                            }
+                            else if (FileService.IsImage(file.Name))
+                            {
+                                <button type="button" class="file-tile-open" @onclick="() => PreviewFile(file.Path, file.Name)" aria-label="Preview @file.Name">
+                                    <img src="@GetThumbnailUrl(file)" alt="" class="file-thumbnail" loading="lazy" />
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="file-tile-open" disabled="@(!FileService.IsPreviewable(file.Name))"
+                                        @onclick="() => PreviewFile(file.Path, file.Name)" aria-label="Preview @file.Name">
+                                    <i class="bi bi-file-earmark file-tile-file"></i>
+                                </button>
+                            }
+                        </div>
+                        <div class="file-tile-name">
+                            @if (file.IsDirectory)
+                            {
+                                <a href="#" @onclick="() => NavigateToPath(file.Path)">@file.Name</a>
+                            }
+                            else if (FileService.IsPreviewable(file.Name))
+                            {
+                                <a href="#" @onclick="() => PreviewFile(file.Path, file.Name)">@file.Name</a>
+                            }
+                            else
+                            {
+                                <span>@file.Name</span>
+                            }
+                        </div>
+                        <div class="file-tile-meta">
+                            @(file.IsDirectory ? "Folder" : FileService.FormatFileSize(file.Size))
+                        </div>
+                        <div class="file-tile-actions">
+                            @if (!file.IsDirectory)
+                            {
+                                <button class="btn btn-sm btn-info" @onclick="() => DownloadFile(file.Path)" title="Download">
+                                    <i class="bi bi-download"></i>
+                                </button>
+                            }
+                            <button class="btn btn-sm btn-danger" @onclick="() => DeleteItem(file.Path, file.Name)" title="Delete">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
     }
     else
     {
@@ -166,6 +238,7 @@
     private string currentPath = string.Empty;
     private bool isLoading = true;
     private bool showCreateFolder = false;
+    private bool previewMode = false;
     private string newFolderName = string.Empty;
     private string? errorMessage;
     private string? successMessage;
@@ -360,6 +433,11 @@
             previewContent = $"Error loading preview: {ex.Message}";
             previewImageData = string.Empty;
         }
+    }
+
+    private static string GetThumbnailUrl(FileManagerService.FileItem file)
+    {
+        return $"/api/thumbnail?path={Uri.EscapeDataString(file.Path)}&v={file.LastModified.Ticks}";
     }
 
     private async Task ClosePreview()

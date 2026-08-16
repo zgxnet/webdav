@@ -1,10 +1,13 @@
 using System.Security;
+using SkiaSharp;
 using WebDav.Models;
 
 namespace WebDav.Services;
 
 public class FileManagerService
 {
+    private const long ThumbnailSourceLimit = 100 * 1024;
+    private const int ThumbnailMaxDimension = 240;
     private readonly WebDavConfig _config;
     private readonly ILogger<FileManagerService> _logger;
 
@@ -281,6 +284,61 @@ public class FileManagerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error reading file as bytes: {Path}", relativePath);
+            return null;
+        }
+    }
+
+    public sealed record ThumbnailResult(byte[] Content, string ContentType);
+
+    public async Task<ThumbnailResult?> CreateThumbnailAsync(
+        string relativePath,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var fullPath = GetFullPath(relativePath);
+            if (!File.Exists(fullPath) || !IsImage(fullPath))
+                return null;
+
+            var fileInfo = new FileInfo(fullPath);
+            var extension = Path.GetExtension(fullPath).ToLowerInvariant();
+
+            // Small images and vector images need no raster thumbnail.
+            if (fileInfo.Length <= ThumbnailSourceLimit || extension == ".svg")
+            {
+                return new ThumbnailResult(
+                    await File.ReadAllBytesAsync(fullPath, cancellationToken),
+                    GetMimeType(fullPath));
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            using var source = SKBitmap.Decode(fullPath);
+            if (source == null || source.Width <= 0 || source.Height <= 0)
+                return null;
+
+            var scale = Math.Min(
+                1f,
+                Math.Min((float)ThumbnailMaxDimension / source.Width, (float)ThumbnailMaxDimension / source.Height));
+            var width = Math.Max(1, (int)Math.Round(source.Width * scale));
+            var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+
+            using var resized = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+            using (var canvas = new SKCanvas(resized))
+            {
+                canvas.Clear(SKColors.Transparent);
+                canvas.DrawBitmap(
+                    source,
+                    new SKRect(0, 0, width, height),
+                    new SKSamplingOptions(SKCubicResampler.Mitchell));
+            }
+
+            using var image = SKImage.FromBitmap(resized);
+            using var data = image.Encode(SKEncodedImageFormat.Webp, 75);
+            return data == null ? null : new ThumbnailResult(data.ToArray(), "image/webp");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Unable to create thumbnail for: {Path}", relativePath);
             return null;
         }
     }
