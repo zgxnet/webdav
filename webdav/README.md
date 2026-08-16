@@ -19,7 +19,7 @@ A simple and standalone WebDAV server implementation in C# ASP.NET Core, based o
 
 ### Prerequisites
 
-- .NET 9.0 SDK or later
+- .NET 10 SDK or later (the Runtime or Hosting Bundle alone cannot build or publish the project)
 
 ### Build from Source
 
@@ -28,6 +28,8 @@ cd webdav
 dotnet build
 dotnet run
 ```
+
+On Windows, `build.bat` publishes a framework-dependent `win-x64` single-file build to the repository's `pub` directory. If the script reports that `Microsoft.NET.Sdk.Web` cannot be found, check `dotnet --list-sdks` and install the .NET 10 SDK; `Microsoft.NET.Sdk.Web` is included with the SDK and is not a separate NuGet package.
 
 ## Usage
 
