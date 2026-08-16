@@ -290,6 +290,24 @@ public class FileManagerService
 
     public sealed record ThumbnailResult(byte[] Content, string ContentType);
 
+    public sealed record ImageFileResult(string FullPath, string ContentType);
+
+    public ImageFileResult? GetImageFile(string relativePath)
+    {
+        try
+        {
+            var fullPath = GetFullPath(relativePath);
+            return File.Exists(fullPath) && IsImage(fullPath)
+                ? new ImageFileResult(fullPath, GetMimeType(fullPath))
+                : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to resolve image preview for: {Path}", relativePath);
+            return null;
+        }
+    }
+
     public async Task<ThumbnailResult?> CreateThumbnailAsync(
         string relativePath,
         CancellationToken cancellationToken = default)

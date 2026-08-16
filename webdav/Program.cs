@@ -193,6 +193,16 @@ app.MapGet("/api/thumbnail", async (
     return Results.File(thumbnail.Content, thumbnail.ContentType);
 });
 
+app.MapGet("/api/image", (
+    string path,
+    FileManagerService fileService) =>
+{
+    var image = fileService.GetImageFile(path);
+    return image == null
+        ? Results.NotFound()
+        : Results.File(image.FullPath, image.ContentType, enableRangeProcessing: true);
+});
+
 // Apply Blazor authentication for non-WebDAV paths
 app.UseWhen(
     context => !context.Request.Path.StartsWithSegments(webDavConfig.Prefix),

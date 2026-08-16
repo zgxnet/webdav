@@ -403,20 +403,9 @@
             
             if (isPreviewImage)
             {
-                // Load image as base64 data URL
-                var imageBytes = await FileService.ReadFileAsBytesAsync(path);
-                if (imageBytes != null)
-                {
-                    var mimeType = FileService.GetMimeType(fileName);
-                    var base64 = Convert.ToBase64String(imageBytes);
-                    previewImageData = $"data:{mimeType};base64,{base64}";
-                    previewContent = string.Empty;
-                }
-                else
-                {
-                    previewImageData = string.Empty;
-                    previewContent = "Unable to load image. File may be too large (max 10MB).";
-                }
+                // Keep large image bytes off the Blazor Server WebSocket connection.
+                previewImageData = GetImageUrl(path);
+                previewContent = string.Empty;
             }
             else
             {
@@ -438,6 +427,11 @@
     private static string GetThumbnailUrl(FileManagerService.FileItem file)
     {
         return $"/api/thumbnail?path={Uri.EscapeDataString(file.Path)}&v={file.LastModified.Ticks}";
+    }
+
+    private static string GetImageUrl(string path)
+    {
+        return $"/api/image?path={Uri.EscapeDataString(path)}";
     }
 
     private async Task ClosePreview()
