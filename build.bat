@@ -4,6 +4,11 @@ setlocal
 set "PUB_DIR=%~dp0pub"
 set "HAS_NET10_SDK="
 
+if defined MSBuildSDKsPath (
+    echo Ignoring externally configured MSBuildSDKsPath: %MSBuildSDKsPath%
+    set "MSBuildSDKsPath="
+)
+
 where dotnet >nul 2>&1
 if errorlevel 1 (
     echo Error: dotnet was not found in PATH.
