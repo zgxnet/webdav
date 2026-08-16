@@ -1,6 +1,8 @@
 @using Microsoft.JSInterop
 @using WebDav.Services
 @using Microsoft.AspNetCore.Components.Web
+@implements IAsyncDisposable
+@inject IJSRuntime JSRuntime
 
 @if (IsVisible)
 {
@@ -13,7 +15,7 @@
                     </h5>
                     <button type="button" class="btn-close" @onclick="Close" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body @(IsImage ? "image-modal-body" : null)">
                     @if (isLoading)
                     {
                         <div class="text-center p-4">
@@ -24,15 +26,17 @@
                     }
                     else if (IsImage)
                     {
-                        <div class="image-preview-container">
-                            @if (!string.IsNullOrEmpty(ImageData))
+                        <div class="image-preview-container @(showOriginal ? "original-size" : null)" @ref="imageContainer">
+                            @if (!string.IsNullOrEmpty(CurrentImageUrl))
                             {
-                                <img src="@ImageData" alt="@FileName" class="preview-image" />
+                                <img src="@CurrentImageUrl" alt="@FileName" class="preview-image" @ref="imageElement" />
                             }
                             else
                             {
-                                <div class="alert alert-warning">
-                                    Unable to load image.
+                                <div class="text-center p-4">
+                                    <div class="spinner-border" role="status">
+                                        <span class="visually-hidden">Preparing preview...</span>
+                                    </div>
                                 </div>
                             }
                         </div>
@@ -60,11 +64,26 @@
                 <div class="modal-footer">
                     <span class="text-muted me-auto">
                         @FileExtension.ToUpper() file
-                        @if (IsImage && !string.IsNullOrEmpty(ImageData))
+                        @if (IsImage && !string.IsNullOrEmpty(ImagePath))
                         {
-                            <span class="ms-2">? Image</span>
+                            <span class="ms-2">
+                                · Image
+                                @if (ImageWidth > 0 && ImageHeight > 0)
+                                {
+                                    <span> (@ImageWidth × @ImageHeight)</span>
+                                }
+                            </span>
                         }
                     </span>
+                    @if (IsImage)
+                    {
+                        <button type="button" class="btn btn-outline-secondary image-size-toggle"
+                                @onclick="ToggleOriginalSize" disabled="@(!canShowOriginal)"
+                                title="@(canShowOriginal ? (showOriginal ? "Fit to window" : "Show original size") : "Image already fits the preview area")"
+                                aria-label="@(showOriginal ? "Fit to window" : "Show original size")">
+                            <i class="bi @(showOriginal ? "bi-zoom-out" : "bi-zoom-in")"></i>
+                        </button>
+                    }
                     <button type="button" class="btn btn-secondary" @onclick="Close">Close</button>
                 </div>
             </div>
@@ -86,7 +105,13 @@
     public string Content { get; set; } = string.Empty;
 
     [Parameter]
-    public string ImageData { get; set; } = string.Empty;
+    public string ImagePath { get; set; } = string.Empty;
+
+    [Parameter]
+    public int ImageWidth { get; set; }
+
+    [Parameter]
+    public int ImageHeight { get; set; }
 
     [Parameter]
     public bool IsImage { get; set; }
@@ -95,8 +120,123 @@
     public EventCallback OnClose { get; set; }
 
     private bool isLoading = false;
+    private bool measurementPending;
+    private bool canShowOriginal;
+    private bool showOriginal;
+    private bool escapeRegistered;
+    private bool panZoomAttached;
+    private bool panZoomUpdatePending;
+    private string measuredImagePath = string.Empty;
+    private string fitImageUrl = string.Empty;
+    private ElementReference imageContainer;
+    private ElementReference imageElement;
+    private DotNetObjectReference<FilePreview>? componentReference;
 
     private bool IsMarkdown => FileExtension is "md" or "markdown";
+    private string OriginalImageUrl => BuildImageUrl(ImagePath);
+    private string CurrentImageUrl => showOriginal ? OriginalImageUrl : fitImageUrl;
+
+    protected override void OnParametersSet()
+    {
+        if (!IsVisible)
+        {
+            measuredImagePath = string.Empty;
+            fitImageUrl = string.Empty;
+            showOriginal = false;
+            canShowOriginal = false;
+            measurementPending = false;
+            panZoomAttached = false;
+            panZoomUpdatePending = false;
+            return;
+        }
+
+        if (IsVisible && IsImage && !string.Equals(measuredImagePath, ImagePath, StringComparison.Ordinal))
+        {
+            measuredImagePath = ImagePath;
+            fitImageUrl = string.Empty;
+            showOriginal = false;
+            canShowOriginal = false;
+            measurementPending = !string.IsNullOrEmpty(ImagePath);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (IsVisible && !escapeRegistered)
+            {
+                componentReference ??= DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("filePreview.registerEscape", componentReference);
+                escapeRegistered = true;
+            }
+            else if (!IsVisible && escapeRegistered)
+            {
+                await JSRuntime.InvokeVoidAsync("filePreview.unregisterEscape");
+                escapeRegistered = false;
+            }
+
+            if (IsVisible && IsImage && measurementPending)
+            {
+                var size = await JSRuntime.InvokeAsync<ElementSize>("filePreview.getSize", imageContainer);
+                var maxWidth = Math.Max(64, (int)Math.Floor(size.Width) - 40);
+                var maxHeight = Math.Max(64, (int)Math.Floor(size.Height) - 40);
+                canShowOriginal = ImageWidth > maxWidth * 1.25 || ImageHeight > maxHeight * 1.25;
+                fitImageUrl = canShowOriginal
+                    ? BuildImageUrl(ImagePath, maxWidth, maxHeight)
+                    : OriginalImageUrl;
+                measurementPending = false;
+                StateHasChanged();
+            }
+
+            if (IsVisible && IsImage && panZoomUpdatePending)
+            {
+                if (showOriginal)
+                {
+                    await JSRuntime.InvokeVoidAsync("filePreview.attachPanZoom", imageContainer, imageElement);
+                    panZoomAttached = true;
+                }
+                else if (panZoomAttached)
+                {
+                    await JSRuntime.InvokeVoidAsync("filePreview.detachPanZoom", imageContainer, imageElement);
+                    panZoomAttached = false;
+                }
+
+                panZoomUpdatePending = false;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // JavaScript is unavailable during server prerendering; the interactive render retries.
+        }
+        catch (JSDisconnectedException)
+        {
+            // The browser connection closed while the preview was being updated.
+        }
+    }
+
+    private void ToggleOriginalSize()
+    {
+        if (canShowOriginal)
+        {
+            showOriginal = !showOriginal;
+            panZoomUpdatePending = true;
+        }
+    }
+
+    private static string BuildImageUrl(string path, int? maxWidth = null, int? maxHeight = null)
+    {
+        var url = $"/api/image?path={Uri.EscapeDataString(path)}";
+        return maxWidth.HasValue && maxHeight.HasValue
+            ? $"{url}&maxWidth={maxWidth.Value}&maxHeight={maxHeight.Value}"
+            : url;
+    }
+
+    [JSInvokable]
+    public Task CloseFromEscape()
+    {
+        return Close();
+    }
 
     private async Task Close()
     {
@@ -139,5 +279,38 @@
         html = html.Replace("\n\n", "</p><p>").Replace("\n", "<br/>");
 
         return $"<div class='markdown-content'><p>{html}</p></div>";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (panZoomAttached)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("filePreview.detachPanZoom", imageContainer, imageElement);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        if (escapeRegistered)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("filePreview.unregisterEscape");
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        componentReference?.Dispose();
+    }
+
+    private sealed class ElementSize
+    {
+        public double Width { get; set; }
+        public double Height { get; set; }
     }
 }

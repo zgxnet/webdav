@@ -195,12 +195,22 @@ app.MapGet("/api/thumbnail", async (
 
 app.MapGet("/api/image", (
     string path,
+    int? maxWidth,
+    int? maxHeight,
     FileManagerService fileService) =>
 {
     var image = fileService.GetImageFile(path);
-    return image == null
-        ? Results.NotFound()
-        : Results.File(image.FullPath, image.ContentType, enableRangeProcessing: true);
+    if (image == null)
+        return Results.NotFound();
+
+    if (maxWidth is > 0 && maxHeight is > 0)
+    {
+        var fittedPreview = fileService.CreateImagePreview(path, maxWidth.Value, maxHeight.Value);
+        if (fittedPreview != null)
+            return Results.File(fittedPreview.Content, fittedPreview.ContentType);
+    }
+
+    return Results.File(image.FullPath, image.ContentType, enableRangeProcessing: true);
 });
 
 // Apply Blazor authentication for non-WebDAV paths

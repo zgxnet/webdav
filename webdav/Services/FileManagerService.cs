@@ -292,6 +292,8 @@ public class FileManagerService
 
     public sealed record ImageFileResult(string FullPath, string ContentType);
 
+    public sealed record ImageInfoResult(int Width, int Height);
+
     public ImageFileResult? GetImageFile(string relativePath)
     {
         try
@@ -304,6 +306,64 @@ public class FileManagerService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Unable to resolve image preview for: {Path}", relativePath);
+            return null;
+        }
+    }
+
+    public ImageInfoResult? GetImageInfo(string relativePath)
+    {
+        try
+        {
+            var fullPath = GetFullPath(relativePath);
+            var extension = Path.GetExtension(fullPath).ToLowerInvariant();
+            if (!File.Exists(fullPath) || extension is ".svg" or ".gif")
+                return null;
+
+            using var stream = File.OpenRead(fullPath);
+            using var codec = SKCodec.Create(stream);
+            return codec == null
+                ? null
+                : new ImageInfoResult(codec.Info.Width, codec.Info.Height);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to read image dimensions for: {Path}", relativePath);
+            return null;
+        }
+    }
+
+    public ThumbnailResult? CreateImagePreview(string relativePath, int maxWidth, int maxHeight)
+    {
+        try
+        {
+            var fullPath = GetFullPath(relativePath);
+            var extension = Path.GetExtension(fullPath).ToLowerInvariant();
+            if (!File.Exists(fullPath) || !IsImage(fullPath) || extension is ".svg" or ".gif")
+                return null;
+
+            maxWidth = Math.Clamp(maxWidth, 64, 4096);
+            maxHeight = Math.Clamp(maxHeight, 64, 4096);
+
+            using var source = SKBitmap.Decode(fullPath);
+            if (source == null || source.Width <= 0 || source.Height <= 0)
+                return null;
+
+            // Avoid recompressing when the original is already close to the display size.
+            if (source.Width <= maxWidth * 1.25 && source.Height <= maxHeight * 1.25)
+                return null;
+
+            var scale = Math.Min((float)maxWidth / source.Width, (float)maxHeight / source.Height);
+            var width = Math.Max(1, (int)Math.Round(source.Width * scale));
+            var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+
+            using var resized = ResizeImage(source, width, height);
+            using var image = SKImage.FromBitmap(resized);
+            using var data = image.Encode(SKEncodedImageFormat.Webp, 82);
+            return data == null ? null : new ThumbnailResult(data.ToArray(), "image/webp");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to create fitted image preview for: {Path}", relativePath);
             return null;
         }
     }
@@ -340,15 +400,7 @@ public class FileManagerService
             var width = Math.Max(1, (int)Math.Round(source.Width * scale));
             var height = Math.Max(1, (int)Math.Round(source.Height * scale));
 
-            using var resized = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
-            using (var canvas = new SKCanvas(resized))
-            {
-                canvas.Clear(SKColors.Transparent);
-                canvas.DrawBitmap(
-                    source,
-                    new SKRect(0, 0, width, height),
-                    new SKSamplingOptions(SKCubicResampler.Mitchell));
-            }
+            using var resized = ResizeImage(source, width, height);
 
             using var image = SKImage.FromBitmap(resized);
             using var data = image.Encode(SKEncodedImageFormat.Webp, 75);
@@ -359,6 +411,18 @@ public class FileManagerService
             _logger.LogWarning(ex, "Unable to create thumbnail for: {Path}", relativePath);
             return null;
         }
+    }
+
+    private static SKBitmap ResizeImage(SKBitmap source, int width, int height)
+    {
+        var resized = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(resized);
+        canvas.Clear(SKColors.Transparent);
+        canvas.DrawBitmap(
+            source,
+            new SKRect(0, 0, width, height),
+            new SKSamplingOptions(SKCubicResampler.Mitchell));
+        return resized;
     }
 
     public string GetMimeType(string fileName)

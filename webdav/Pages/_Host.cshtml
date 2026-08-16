@@ -10,9 +10,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="~/" />
     <title>WebDAV File Manager</title>
-    <link href="vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
-    <link href="vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
-    <link href="css/app.css" rel="stylesheet" />
+    <link href="vendor/bootstrap/bootstrap.min.css" rel="stylesheet" asp-append-version="true">
+    <link href="vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet" asp-append-version="true">
+    <link href="css/app.css" rel="stylesheet" asp-append-version="true" />
     <component type="typeof(HeadOutlet)" render-mode="ServerPrerendered" />
 </head>
 <body>
@@ -42,6 +42,147 @@
             anchorElement.remove();
             URL.revokeObjectURL(url);
         }
+
+        window.filePreview = {
+            escapeHandler: null,
+
+            getSize(element) {
+                const bounds = element.getBoundingClientRect();
+                return { width: bounds.width, height: bounds.height };
+            },
+
+            registerEscape(dotNetReference) {
+                this.unregisterEscape();
+                this.escapeHandler = event => {
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        dotNetReference.invokeMethodAsync('CloseFromEscape');
+                    }
+                };
+                document.addEventListener('keydown', this.escapeHandler);
+            },
+
+            unregisterEscape() {
+                if (this.escapeHandler) {
+                    document.removeEventListener('keydown', this.escapeHandler);
+                    this.escapeHandler = null;
+                }
+            },
+
+            attachPanZoom(container, image) {
+                this.detachPanZoom(container, image);
+
+                const state = {
+                    scale: 1,
+                    dragging: false,
+                    startX: 0,
+                    startY: 0,
+                    startScrollLeft: 0,
+                    startScrollTop: 0
+                };
+
+                const resetImageSize = () => {
+                    state.scale = 1;
+                    image.style.width = `${image.naturalWidth}px`;
+                    image.style.height = `${image.naturalHeight}px`;
+                    container.scrollLeft = 0;
+                    container.scrollTop = 0;
+                };
+
+                const onPointerDown = event => {
+                    if (event.button !== 0) return;
+                    state.dragging = true;
+                    state.startX = event.clientX;
+                    state.startY = event.clientY;
+                    state.startScrollLeft = container.scrollLeft;
+                    state.startScrollTop = container.scrollTop;
+                    container.classList.add('is-dragging');
+                    container.setPointerCapture(event.pointerId);
+                    event.preventDefault();
+                };
+
+                const onPointerMove = event => {
+                    if (!state.dragging) return;
+                    container.scrollLeft = state.startScrollLeft - (event.clientX - state.startX);
+                    container.scrollTop = state.startScrollTop - (event.clientY - state.startY);
+                };
+
+                const endDrag = event => {
+                    if (!state.dragging) return;
+                    state.dragging = false;
+                    container.classList.remove('is-dragging');
+                    if (container.hasPointerCapture(event.pointerId)) {
+                        container.releasePointerCapture(event.pointerId);
+                    }
+                };
+
+                const onWheel = event => {
+                    if (!event.ctrlKey || !image.naturalWidth || !image.naturalHeight) return;
+                    event.preventDefault();
+
+                    const oldScale = state.scale;
+                    const zoomFactor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+                    const newScale = Math.min(5, Math.max(0.1, oldScale * zoomFactor));
+                    if (newScale === oldScale) return;
+
+                    const bounds = container.getBoundingClientRect();
+                    const pointerX = event.clientX - bounds.left;
+                    const pointerY = event.clientY - bounds.top;
+                    const imageX = (container.scrollLeft + pointerX) / oldScale;
+                    const imageY = (container.scrollTop + pointerY) / oldScale;
+
+                    state.scale = newScale;
+                    image.style.width = `${image.naturalWidth * newScale}px`;
+                    image.style.height = `${image.naturalHeight * newScale}px`;
+                    container.scrollLeft = imageX * newScale - pointerX;
+                    container.scrollTop = imageY * newScale - pointerY;
+                };
+
+                const preventImageDrag = event => event.preventDefault();
+                container.addEventListener('pointerdown', onPointerDown);
+                container.addEventListener('pointermove', onPointerMove);
+                container.addEventListener('pointerup', endDrag);
+                container.addEventListener('pointercancel', endDrag);
+                container.addEventListener('wheel', onWheel, { passive: false });
+                image.addEventListener('dragstart', preventImageDrag);
+
+                container._filePreviewPanZoom = {
+                    image,
+                    onPointerDown,
+                    onPointerMove,
+                    endDrag,
+                    onWheel,
+                    preventImageDrag,
+                    resetImageSize
+                };
+
+                if (image.complete && image.naturalWidth) {
+                    resetImageSize();
+                } else {
+                    image.addEventListener('load', resetImageSize, { once: true });
+                }
+            },
+
+            detachPanZoom(container, image) {
+                const handlers = container?._filePreviewPanZoom;
+                if (handlers) {
+                    container.removeEventListener('pointerdown', handlers.onPointerDown);
+                    container.removeEventListener('pointermove', handlers.onPointerMove);
+                    container.removeEventListener('pointerup', handlers.endDrag);
+                    container.removeEventListener('pointercancel', handlers.endDrag);
+                    container.removeEventListener('wheel', handlers.onWheel);
+                    handlers.image.removeEventListener('dragstart', handlers.preventImageDrag);
+                    handlers.image.removeEventListener('load', handlers.resetImageSize);
+                    delete container._filePreviewPanZoom;
+                }
+
+                container?.classList.remove('is-dragging');
+                if (image) {
+                    image.style.width = '';
+                    image.style.height = '';
+                }
+            }
+        };
     </script>
 </body>
 </html>

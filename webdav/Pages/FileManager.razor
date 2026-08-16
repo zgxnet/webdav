@@ -229,7 +229,9 @@
     FileName="@previewFileName" 
     FileExtension="@previewFileExtension"
     Content="@previewContent"
-    ImageData="@previewImageData"
+    ImagePath="@previewImagePath"
+    ImageWidth="@previewImageWidth"
+    ImageHeight="@previewImageHeight"
     IsImage="@isPreviewImage"
     OnClose="@ClosePreview" />
 
@@ -248,7 +250,9 @@
     private string previewFileName = string.Empty;
     private string previewFileExtension = string.Empty;
     private string previewContent = string.Empty;
-    private string previewImageData = string.Empty;
+    private string previewImagePath = string.Empty;
+    private int previewImageWidth;
+    private int previewImageHeight;
     private bool isPreviewImage = false;
 
     protected override async Task OnInitializedAsync()
@@ -403,15 +407,17 @@
             
             if (isPreviewImage)
             {
-                // Keep large image bytes off the Blazor Server WebSocket connection.
-                previewImageData = GetImageUrl(path);
+                var imageInfo = FileService.GetImageInfo(path);
+                previewImagePath = path;
+                previewImageWidth = imageInfo?.Width ?? 0;
+                previewImageHeight = imageInfo?.Height ?? 0;
                 previewContent = string.Empty;
             }
             else
             {
                 // Load text content
                 previewContent = "Loading...";
-                previewImageData = string.Empty;
+                previewImagePath = string.Empty;
                 var content = await FileService.ReadFileContentAsync(path);
                 previewContent = content ?? "Unable to load file content.";
             }
@@ -420,7 +426,7 @@
         {
             Logger.LogError(ex, "Error previewing file");
             previewContent = $"Error loading preview: {ex.Message}";
-            previewImageData = string.Empty;
+            previewImagePath = string.Empty;
         }
     }
 
@@ -429,18 +435,15 @@
         return $"/api/thumbnail?path={Uri.EscapeDataString(file.Path)}&v={file.LastModified.Ticks}";
     }
 
-    private static string GetImageUrl(string path)
-    {
-        return $"/api/image?path={Uri.EscapeDataString(path)}";
-    }
-
     private async Task ClosePreview()
     {
         showPreview = false;
         previewContent = string.Empty;
         previewFileName = string.Empty;
         previewFileExtension = string.Empty;
-        previewImageData = string.Empty;
+        previewImagePath = string.Empty;
+        previewImageWidth = 0;
+        previewImageHeight = 0;
         isPreviewImage = false;
         StateHasChanged(); // Force UI update
         await Task.CompletedTask;
