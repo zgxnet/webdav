@@ -185,6 +185,7 @@ app.MapGet("/api/thumbnail", async (
     HttpContext context,
     CancellationToken cancellationToken) =>
 {
+    fileService.SetCurrentUser((context.Items["WebDavUser"] as UserService.UserInfo)?.Username);
     var thumbnail = await fileService.CreateThumbnailAsync(path, cancellationToken);
     if (thumbnail == null)
         return Results.NotFound();
@@ -197,8 +198,10 @@ app.MapGet("/api/image", (
     string path,
     int? maxWidth,
     int? maxHeight,
-    FileManagerService fileService) =>
+    FileManagerService fileService,
+    HttpContext context) =>
 {
+    fileService.SetCurrentUser((context.Items["WebDavUser"] as UserService.UserInfo)?.Username);
     var image = fileService.GetImageFile(path);
     if (image == null)
         return Results.NotFound();

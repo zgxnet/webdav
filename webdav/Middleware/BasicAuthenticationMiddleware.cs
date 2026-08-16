@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Claims;
 using System.Text;
 using WebDav.Services;
 
@@ -80,8 +81,12 @@ public class BasicAuthenticationMiddleware
 
             LogInfo(context, $"User authorized: {username}");
             
-            // Store user info in context for later use
+            // Store the authenticated identity both for request middleware and for
+            // Blazor's circuit authentication state.
             context.Items["WebDavUser"] = user;
+            context.User = new ClaimsPrincipal(new ClaimsIdentity(
+                new[] { new Claim(ClaimTypes.Name, user.Username) },
+                authenticationType: "Basic"));
             
             await _next(context);
         }

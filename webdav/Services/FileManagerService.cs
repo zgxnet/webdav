@@ -10,6 +10,8 @@ public class FileManagerService
     private const int ThumbnailMaxDimension = 240;
     private readonly WebDavConfig _config;
     private readonly ILogger<FileManagerService> _logger;
+    private readonly UserService _userService;
+    private UserService.UserInfo? _currentUser;
 
     public class FileItem
     {
@@ -20,17 +22,56 @@ public class FileManagerService
         public DateTime LastModified { get; set; }
     }
 
-    public FileManagerService(WebDavConfig config, ILogger<FileManagerService> logger)
+    public FileManagerService(
+        WebDavConfig config,
+        UserService userService,
+        ILogger<FileManagerService> logger)
     {
         _config = config;
+        _userService = userService;
         _logger = logger;
+    }
+
+    public void SetCurrentUser(string? username)
+    {
+        if (!_userService.HasUsers)
+        {
+            _currentUser = null;
+            return;
+        }
+
+        _currentUser = string.IsNullOrWhiteSpace(username)
+            ? null
+            : _userService.GetUser(username);
+
+        if (_currentUser == null)
+            throw new SecurityException("The current user could not be authenticated");
+    }
+
+    public bool CanCreateIn(string relativePath)
+    {
+        return IsAllowed("MKCOL", Path.Combine(relativePath, ".permission-check"), fileExists: false);
+    }
+
+    public bool CanUploadTo(string relativePath)
+    {
+        var permissionPath = Path.Combine(relativePath, ".permission-check");
+        return IsAllowed("PUT", permissionPath, fileExists: false) ||
+               IsAllowed("PUT", permissionPath, fileExists: true);
+    }
+
+    public bool CanDelete(string relativePath)
+    {
+        return !IsRootPoint(relativePath) && IsAllowed("DELETE", relativePath);
     }
 
     public async Task<List<FileItem>> GetFilesAsync(string relativePath = "")
     {
         try
         {
-            if (_config.RootPoints.Count > 0 && string.IsNullOrWhiteSpace(relativePath))
+            EnsureAllowed("PROPFIND", relativePath);
+
+            if (UsesRootPoints && string.IsNullOrWhiteSpace(relativePath))
             {
                 return _config.RootPoints
                     .Select(point =>
@@ -99,7 +140,9 @@ public class FileManagerService
     {
         try
         {
-            var fullPath = GetFullPath(Path.Combine(relativePath, directoryName));
+            var targetPath = Path.Combine(relativePath, directoryName);
+            EnsureAllowed("MKCOL", targetPath);
+            var fullPath = GetFullPath(targetPath);
             if (!Directory.Exists(fullPath))
             {
                 Directory.CreateDirectory(fullPath);
@@ -119,6 +162,8 @@ public class FileManagerService
     {
         try
         {
+            EnsureAllowed("DELETE", relativePath);
+
             if (IsRootPoint(relativePath))
                 throw new SecurityException("Deleting a configured root point is not allowed");
 
@@ -150,7 +195,9 @@ public class FileManagerService
     {
         try
         {
-            var fullPath = GetFullPath(Path.Combine(relativePath, fileName));
+            var targetPath = Path.Combine(relativePath, fileName);
+            EnsureAllowed("PUT", targetPath);
+            var fullPath = GetFullPath(targetPath);
             var directory = Path.GetDirectoryName(fullPath);
             
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
@@ -175,6 +222,7 @@ public class FileManagerService
     {
         try
         {
+            EnsureAllowed("GET", relativePath);
             var fullPath = GetFullPath(relativePath);
             
             if (File.Exists(fullPath))
@@ -199,6 +247,9 @@ public class FileManagerService
     {
         try
         {
+            if (_currentUser is { UsesRootPoints: false })
+                return ResolvePathUnderRoot(_currentUser.Directory, relativePath);
+
             return _config.ResolvePath(relativePath);
         }
         catch (Exception ex)
@@ -218,6 +269,75 @@ public class FileManagerService
             point.Path.Trim('/', Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
             normalizedPath,
             StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool UsesRootPoints =>
+        _currentUser?.UsesRootPoints ?? (_userService.HasUsers ? false : _config.RootPoints.Count > 0);
+
+    private bool IsAllowed(string method, string relativePath, bool? fileExists = null)
+    {
+        if (!_userService.HasUsers)
+            return true;
+
+        if (_currentUser == null)
+            return false;
+
+        var davPath = ToDavPath(relativePath);
+        return _currentUser.Permissions.IsAllowed(
+            method,
+            davPath,
+            destination: null,
+            _ => fileExists ?? FileExists(relativePath));
+    }
+
+    private void EnsureAllowed(string method, string relativePath)
+    {
+        if (IsAllowed(method, relativePath))
+            return;
+
+        _logger.LogWarning(
+            "File manager permission denied: User={User}, Method={Method}, Path={Path}",
+            _currentUser?.Username ?? "(unknown)",
+            method,
+            ToDavPath(relativePath));
+        throw new SecurityException("You do not have permission to perform this operation");
+    }
+
+    private bool FileExists(string relativePath)
+    {
+        try
+        {
+            var fullPath = GetFullPath(relativePath);
+            return File.Exists(fullPath) || Directory.Exists(fullPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to check path for permission evaluation: {Path}", relativePath);
+            return false;
+        }
+    }
+
+    private static string ToDavPath(string relativePath)
+    {
+        var normalized = relativePath.Replace('\\', '/').Trim('/');
+        return string.IsNullOrEmpty(normalized) ? "/" : $"/{normalized}";
+    }
+
+    private static string ResolvePathUnderRoot(string root, string relativePath)
+    {
+        var normalizedPath = relativePath
+            .Replace('/', Path.DirectorySeparatorChar)
+            .TrimStart(Path.DirectorySeparatorChar);
+        var rootPath = Path.GetFullPath(root);
+        var fullPath = Path.GetFullPath(Path.Combine(rootPath, normalizedPath));
+
+        if (!string.Equals(fullPath, rootPath, StringComparison.OrdinalIgnoreCase) &&
+            !fullPath.StartsWith(rootPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SecurityException($"Access to path '{relativePath}' is denied");
+        }
+
+        return fullPath;
     }
 
     public string FormatFileSize(long bytes)
@@ -262,6 +382,7 @@ public class FileManagerService
     {
         try
         {
+            EnsureAllowed("GET", relativePath);
             var fullPath = GetFullPath(relativePath);
             
             if (!File.Exists(fullPath))
@@ -298,6 +419,7 @@ public class FileManagerService
     {
         try
         {
+            EnsureAllowed("GET", relativePath);
             var fullPath = GetFullPath(relativePath);
             return File.Exists(fullPath) && IsImage(fullPath)
                 ? new ImageFileResult(fullPath, GetMimeType(fullPath))
@@ -314,6 +436,7 @@ public class FileManagerService
     {
         try
         {
+            EnsureAllowed("GET", relativePath);
             var fullPath = GetFullPath(relativePath);
             var extension = Path.GetExtension(fullPath).ToLowerInvariant();
             if (!File.Exists(fullPath) || extension is ".svg" or ".gif")
@@ -336,6 +459,7 @@ public class FileManagerService
     {
         try
         {
+            EnsureAllowed("GET", relativePath);
             var fullPath = GetFullPath(relativePath);
             var extension = Path.GetExtension(fullPath).ToLowerInvariant();
             if (!File.Exists(fullPath) || !IsImage(fullPath) || extension is ".svg" or ".gif")
@@ -374,6 +498,7 @@ public class FileManagerService
     {
         try
         {
+            EnsureAllowed("GET", relativePath);
             var fullPath = GetFullPath(relativePath);
             if (!File.Exists(fullPath) || !IsImage(fullPath))
                 return null;
@@ -445,6 +570,7 @@ public class FileManagerService
     {
         try
         {
+            EnsureAllowed("GET", relativePath);
             var fullPath = GetFullPath(relativePath);
             
             if (!File.Exists(fullPath))

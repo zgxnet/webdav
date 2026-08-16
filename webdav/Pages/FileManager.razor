@@ -41,13 +41,19 @@
     }
 
     <div class="toolbar mb-3">
-        <button class="btn btn-primary" @onclick="ShowCreateFolderDialog">
-            <i class="bi bi-folder-plus"></i> New Folder
-        </button>
-        <label class="btn btn-success">
-            <i class="bi bi-upload"></i> Upload File
-            <InputFile OnChange="HandleFileUpload" multiple hidden />
-        </label>
+        @if (FileService.CanCreateIn(currentPath))
+        {
+            <button class="btn btn-primary" @onclick="ShowCreateFolderDialog">
+                <i class="bi bi-folder-plus"></i> New Folder
+            </button>
+        }
+        @if (FileService.CanUploadTo(currentPath))
+        {
+            <label class="btn btn-success">
+                <i class="bi bi-upload"></i> Upload File
+                <InputFile OnChange="HandleFileUpload" multiple hidden />
+            </label>
+        }
         <div class="btn-group view-switcher" role="group" aria-label="View mode">
             <button type="button" class="btn btn-outline-secondary @(previewMode ? null : "active")"
                     @onclick="() => previewMode = false" title="Details view" aria-pressed="@(!previewMode)">
@@ -146,9 +152,12 @@
                                         <i class="bi bi-download"></i>
                                     </button>
                                 }
-                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteItem(file.Path, file.Name)">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                @if (FileService.CanDelete(file.Path))
+                                {
+                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteItem(file.Path, file.Name)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                }
                             </td>
                         </tr>
                     }
@@ -207,9 +216,12 @@
                                     <i class="bi bi-download"></i>
                                 </button>
                             }
-                            <button class="btn btn-sm btn-danger" @onclick="() => DeleteItem(file.Path, file.Name)" title="Delete">
-                                <i class="bi bi-trash"></i>
-                            </button>
+                            @if (FileService.CanDelete(file.Path))
+                            {
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteItem(file.Path, file.Name)" title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            }
                         </div>
                     </article>
                 }
@@ -236,6 +248,9 @@
     OnClose="@ClosePreview" />
 
 @code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
     private List<FileManagerService.FileItem>? files;
     private string currentPath = string.Empty;
     private bool isLoading = true;
@@ -257,6 +272,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var authenticationState = AuthenticationStateTask == null
+            ? null
+            : await AuthenticationStateTask;
+        FileService.SetCurrentUser(authenticationState?.User.Identity?.Name);
         await LoadFiles();
     }
 
