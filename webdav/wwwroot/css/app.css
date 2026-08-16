@@ -399,3 +399,27 @@ main {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+.top-bar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.4rem 1rem;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.top-bar-user {
+    color: #333;
+}
+
+.top-bar-logout {
+    color: #6c757d;
+    text-decoration: none;
+}
+
+.top-bar-logout:hover {
+    color: #0d6efd;
+    text-decoration: underline;
+}

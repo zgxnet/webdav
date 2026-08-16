@@ -74,6 +74,7 @@ public class FileManagerService
             if (UsesRootPoints && string.IsNullOrWhiteSpace(relativePath))
             {
                 return _config.RootPoints
+                    .Where(point => !_userService.HasUsers || point.IsUserAllowed(_currentUser?.Username))
                     .Select(point =>
                     {
                         var directory = new DirectoryInfo(Path.GetFullPath(point.Directory));
@@ -250,12 +251,29 @@ public class FileManagerService
             if (_currentUser is { UsesRootPoints: false })
                 return ResolvePathUnderRoot(_currentUser.Directory, relativePath);
 
+            EnsureRootPointAccess(relativePath);
             return _config.ResolvePath(relativePath);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resolving full path for: {Path}", relativePath);
             throw;
+        }
+    }
+
+    private void EnsureRootPointAccess(string relativePath)
+    {
+        if (!_userService.HasUsers || string.IsNullOrWhiteSpace(relativePath))
+            return;
+
+        var point = _config.FindRootPoint(relativePath);
+        if (point != null && !point.IsUserAllowed(_currentUser?.Username))
+        {
+            _logger.LogWarning(
+                "File manager root point access denied: User={User}, Path={Path}",
+                _currentUser?.Username ?? "(unknown)",
+                relativePath);
+            throw new SecurityException("You do not have permission to perform this operation");
         }
     }
 

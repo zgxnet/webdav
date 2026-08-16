@@ -53,7 +53,7 @@ To expose multiple local directories in one DAV endpoint, configure named root p
 }
 ```
 
-The directories are available at `/dav/documents` and `/dav/backups`. Users using the configured root points should omit their per-user `Directory`.
+The directories are available at `/dav/documents` and `/dav/backups`. Users using the configured root points should omit their per-user `Directory`. Add an optional `ValidUsers` list to a root point to restrict it to specific users (e.g. `"ValidUsers": [ "admin" ]`); when omitted, every user can see and access it.
 
 Run:
 ```bash

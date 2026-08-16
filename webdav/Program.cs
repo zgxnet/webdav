@@ -216,6 +216,21 @@ app.MapGet("/api/image", (
     return Results.File(image.FullPath, image.ContentType, enableRangeProcessing: true);
 });
 
+// Basic Auth logout: always return 401 so the browser discards its cached
+// credentials and prompts for new credentials on the next visit.
+app.MapGet("/logout", (HttpContext context) =>
+{
+    context.Response.Headers["WWW-Authenticate"] = "Basic realm=\"WebDAV File Manager\"";
+    return Results.Content(
+        "<!DOCTYPE html><html><head><title>Logged out</title></head>" +
+        "<body style=\"font-family:sans-serif;max-width:32rem;margin:4rem auto;text-align:center\">" +
+        "<h1>Logged out</h1>" +
+        "<p>You have been logged out. If the browser asks for credentials, choose Cancel.</p>" +
+        "<p><a href=\"/\">Sign in again</a></p></body></html>",
+        "text/html",
+        statusCode: StatusCodes.Status401Unauthorized);
+});
+
 // Apply Blazor authentication for non-WebDAV paths
 app.UseWhen(
     context => !context.Request.Path.StartsWithSegments(webDavConfig.Prefix),

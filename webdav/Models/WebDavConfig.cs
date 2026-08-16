@@ -21,6 +21,12 @@ public class WebDavConfig
     public List<UserConfig> Users { get; set; } = new();
     public List<RuleConfig> Rules { get; set; } = new();
 
+    public RootPointConfig? FindRootPoint(string relativePath)
+    {
+        var pointName = relativePath.Replace('\\', '/').Trim('/').Split('/', 2)[0];
+        return RootPoints.FirstOrDefault(item => string.Equals(item.Path.Trim('/'), pointName, StringComparison.OrdinalIgnoreCase));
+    }
+
     public string ResolvePath(string relativePath)
     {
         var normalizedPath = relativePath.Replace('/', System.IO.Path.DirectorySeparatorChar).TrimStart(System.IO.Path.DirectorySeparatorChar);
@@ -45,6 +51,17 @@ public class RootPointConfig
 {
     public string Path { get; set; } = string.Empty;
     public string Directory { get; set; } = string.Empty;
+
+    // When null or empty, the root point is visible to every user.
+    // When set, only the listed users can see and access this root point.
+    // Has no effect when no users are configured (anonymous access).
+    public List<string>? ValidUsers { get; set; }
+
+    public bool IsUserAllowed(string? username)
+    {
+        return ValidUsers is not { Count: > 0 } ||
+               (username != null && ValidUsers.Contains(username, StringComparer.OrdinalIgnoreCase));
+    }
 }
 
 public class LogConfig

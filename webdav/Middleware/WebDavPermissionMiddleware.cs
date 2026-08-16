@@ -64,6 +64,24 @@ public class WebDavPermissionMiddleware
                     }
                 }
 
+                // Enforce per-root-point ValidUsers restrictions on source and destination paths
+                if (user.UsesRootPoints &&
+                    (!IsRootPointAccessAllowed(path) ||
+                     (!string.IsNullOrEmpty(destination) && !IsRootPointAccessAllowed(destination))))
+                {
+                    _logger.LogWarning("Root point access denied: User={User}, Path={Path}, Destination={Destination}",
+                        user.Username, path, destination ?? "(none)");
+                    context.Response.StatusCode = 403;
+                    await context.Response.WriteAsync("Forbidden");
+                    return;
+                }
+
+                bool IsRootPointAccessAllowed(string davPath)
+                {
+                    var point = _config.FindRootPoint(davPath);
+                    return point == null || point.IsUserAllowed(user.Username);
+                }
+
                 bool FileExists(string filePath)
                 {
                     try

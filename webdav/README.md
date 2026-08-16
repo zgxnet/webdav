@@ -128,6 +128,18 @@ The mapping is:
 
 When `RootPoints` is configured, it replaces `Directory`. The server creates a configured local directory if it does not already exist. For users in this mode, omit the per-user `Directory`; permissions and rules still apply to the DAV paths, including the root point name.
 
+Each root point accepts an optional `ValidUsers` list. When omitted (or empty), the root point is visible to every user; when set, only the listed users can see it in the web UI or access it through WebDAV (this also covers `COPY`/`MOVE` destinations):
+
+```json
+{
+  "Path": "backups",
+  "Directory": "/var/webdav/backups",
+  "ValidUsers": [ "admin" ]
+}
+```
+
+`ValidUsers` has no effect when no users are configured (anonymous access).
+
 ### Configuration Options
 
 - **Address**: IP address to bind to (default: `0.0.0.0`)
@@ -148,7 +160,7 @@ When `RootPoints` is configured, it replaces `Directory`. The server creates a c
     { "Path": "backups", "Directory": "/srv/backups" }
   ]
   ```
-  These are available at `/dav/documents` and `/dav/backups`. Leave `RootPoints` empty to use `Directory`.
+  These are available at `/dav/documents` and `/dav/backups`. Leave `RootPoints` empty to use `Directory`. Each item also accepts an optional `ValidUsers` list restricting the root point to the named users, e.g. `{ "Path": "backups", "Directory": "/srv/backups", "ValidUsers": [ "admin" ] }`; when omitted, all users can access it.
 - **Permissions**: Default permissions (default: `R`)
   - `C` - Create
   - `R` - Read
@@ -291,6 +303,8 @@ cadaver http://localhost:6065/dav
 ### Web UI
 
 Access the Blazor file manager interface at: `http://localhost:6065/`
+
+When authentication is enabled, the top bar shows the signed-in username and a **Logout** link. Because the UI uses HTTP Basic Auth, logout works by asking the browser to discard its cached credentials: if the browser prompts for credentials after clicking Logout, choose **Cancel**, then use the *Sign in again* link to log in as a different user.
 
 ## Security Notes
 

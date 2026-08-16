@@ -1,6 +1,18 @@
 @inherits LayoutComponentBase
 
 <div class="page">
+    <AuthorizeView>
+        <Authorized>
+            <div class="top-bar">
+                <span class="top-bar-user">
+                    <i class="bi bi-person-circle"></i> @context.User.Identity?.Name
+                </span>
+                <a class="top-bar-logout" href="/logout">
+                    <i class="bi bi-box-arrow-right"></i> Logout
+                </a>
+            </div>
+        </Authorized>
+    </AuthorizeView>
     <main>
         <article class="content px-4">
             @Body
