@@ -1,3 +1,8 @@
+using System.Net;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Antiforgery;
 using WebDav.Models;
 using WebDav.Services;
 using WebDav.Middleware;
@@ -5,6 +10,7 @@ using NWebDav.Server;
 using NWebDav.Server.Stores;
 
 const string windowsServiceSwitch = "--windows-service";
+const string webUiCookieScheme = "WebUiCookie";
 var runAsWindowsService = args.Any(argument =>
     string.Equals(argument, windowsServiceSwitch, StringComparison.OrdinalIgnoreCase));
 var applicationArgs = args
@@ -72,6 +78,19 @@ builder.Services.AddSingleton<UserService>(sp =>
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
 builder.Services.AddScoped<FileManagerService>();
+builder.Services
+    .AddAuthentication(webUiCookieScheme)
+    .AddCookie(webUiCookieScheme, options =>
+    {
+        options.Cookie.Name = "WebDav.UiAuth";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Strict;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        options.LoginPath = "/login";
+        options.SlidingExpiration = true;
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    });
+builder.Services.AddAntiforgery();
 
 // Configure NWebDav services
 builder.Services.AddNWebDav(options =>
@@ -178,6 +197,7 @@ if (webDavConfig.Cors.Enabled)
 // Add static files and routing for Blazor
 app.UseStaticFiles();
 app.UseRouting();
+app.UseAuthentication();
 
 app.MapGet("/api/thumbnail", async (
     string path,
@@ -216,27 +236,89 @@ app.MapGet("/api/image", (
     return Results.File(image.FullPath, image.ContentType, enableRangeProcessing: true);
 });
 
-// Basic Auth logout: always return 401 so the browser discards its cached
-// credentials and prompts for new credentials on the next visit.
-app.MapGet("/logout", (HttpContext context) =>
+app.MapGet("/login", (HttpContext context, IAntiforgery antiforgery) =>
 {
-    context.Response.Headers["WWW-Authenticate"] = "Basic realm=\"WebDAV File Manager\"";
-    return Results.Content(
-        "<!DOCTYPE html><html><head><title>Logged out</title></head>" +
-        "<body style=\"font-family:sans-serif;max-width:32rem;margin:4rem auto;text-align:center\">" +
-        "<h1>Logged out</h1>" +
-        "<p>You have been logged out. If the browser asks for credentials, choose Cancel.</p>" +
-        "<p><a href=\"/\">Sign in again</a></p></body></html>",
-        "text/html",
-        statusCode: StatusCodes.Status401Unauthorized);
+    if (!userService.HasUsers || context.User.Identity?.IsAuthenticated == true)
+        return Results.LocalRedirect("/");
+
+    var returnUrl = GetLocalReturnUrl(context.Request.Query["returnUrl"]);
+    var tokens = antiforgery.GetAndStoreTokens(context);
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Content(RenderLoginPage(returnUrl, tokens.RequestToken), "text/html");
 });
 
-// Apply Blazor authentication for non-WebDAV paths
+app.MapPost("/login", async (HttpContext context, IAntiforgery antiforgery) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+
+    try
+    {
+        await antiforgery.ValidateRequestAsync(context);
+    }
+    catch (AntiforgeryValidationException)
+    {
+        return Results.BadRequest("The login form has expired. Reload the login page and try again.");
+    }
+
+    var form = await context.Request.ReadFormAsync(context.RequestAborted);
+    var username = form["username"].ToString();
+    var password = form["password"].ToString();
+    var returnUrl = GetLocalReturnUrl(form["returnUrl"]);
+    var user = userService.GetUser(username);
+
+    if (user == null || (!userService.NoPassword && !user.CheckPassword(password)))
+    {
+        var tokens = antiforgery.GetAndStoreTokens(context);
+        return Results.Content(
+            RenderLoginPage(returnUrl, tokens.RequestToken, "Invalid username or password."),
+            "text/html",
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var principal = new ClaimsPrincipal(new ClaimsIdentity(
+        new[] { new Claim(ClaimTypes.Name, user.Username) },
+        webUiCookieScheme));
+    await context.SignInAsync(webUiCookieScheme, principal);
+    return Results.LocalRedirect(returnUrl);
+});
+
+app.MapPost("/logout", async (HttpContext context) =>
+{
+    await context.SignOutAsync(webUiCookieScheme);
+    return Results.LocalRedirect("/login");
+});
+
+// Protect the web UI with cookie authentication. WebDAV clients continue to
+// authenticate with HTTP Basic in the separate branch below.
 app.UseWhen(
-    context => !context.Request.Path.StartsWithSegments(webDavConfig.Prefix),
+    context => userService.HasUsers &&
+        !context.Request.Path.StartsWithSegments(webDavConfig.Prefix) &&
+        context.Request.Path != "/login" &&
+        context.Request.Path != "/logout",
     blazorApp =>
     {
-        blazorApp.UseBasicAuthentication(userService, webDavConfig.BehindProxy, "WebDAV File Manager");
+        blazorApp.Use(async (context, next) =>
+        {
+            if (context.User.Identity?.IsAuthenticated != true)
+            {
+                var returnUrl = context.Request.PathBase + context.Request.Path + context.Request.QueryString;
+                await context.ChallengeAsync(
+                    webUiCookieScheme,
+                    new AuthenticationProperties { RedirectUri = returnUrl });
+                return;
+            }
+
+            var user = userService.GetUser(context.User.Identity.Name ?? string.Empty);
+            if (user == null)
+            {
+                await context.SignOutAsync(webUiCookieScheme);
+                await context.ChallengeAsync(webUiCookieScheme);
+                return;
+            }
+
+            context.Items["WebDavUser"] = user;
+            await next(context);
+        });
     });
 
 // Apply WebDAV middleware conditionally based on path prefix
@@ -266,3 +348,60 @@ logger.LogInformation("WebDAV endpoint available at {Protocol}://{Address}:{Port
     protocol, webDavConfig.Address, webDavConfig.Port, webDavConfig.Prefix);
 
 app.Run();
+
+static string GetLocalReturnUrl(string? returnUrl)
+{
+    return !string.IsNullOrWhiteSpace(returnUrl) &&
+        returnUrl.StartsWith('/') &&
+        !returnUrl.StartsWith("//", StringComparison.Ordinal) &&
+        !returnUrl.StartsWith("/\\", StringComparison.Ordinal)
+            ? returnUrl
+            : "/";
+}
+
+static string RenderLoginPage(string returnUrl, string? requestToken, string? error = null)
+{
+    var encodedReturnUrl = WebUtility.HtmlEncode(returnUrl);
+    var encodedToken = WebUtility.HtmlEncode(requestToken ?? string.Empty);
+    var errorHtml = error == null
+        ? string.Empty
+        : $"<div class=\"error\" role=\"alert\">{WebUtility.HtmlEncode(error)}</div>";
+
+    return $$"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Sign in - WebDAV File Manager</title>
+            <style>
+                * { box-sizing: border-box; }
+                body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f6f8; font-family: "Segoe UI", sans-serif; color: #212529; }
+                main { width: min(24rem, calc(100% - 2rem)); padding: 2rem; background: white; border: 1px solid #dee2e6; border-radius: .5rem; box-shadow: 0 .5rem 1.5rem rgba(0,0,0,.08); }
+                h1 { margin: 0 0 1.5rem; font-size: 1.5rem; }
+                label { display: block; margin: 1rem 0 .35rem; font-weight: 600; }
+                input { width: 100%; padding: .65rem .75rem; border: 1px solid #adb5bd; border-radius: .3rem; font: inherit; }
+                input:focus { border-color: #0d6efd; outline: 3px solid rgba(13,110,253,.2); }
+                button { width: 100%; margin-top: 1.25rem; padding: .7rem; border: 0; border-radius: .3rem; background: #0d6efd; color: white; font: inherit; font-weight: 600; cursor: pointer; }
+                button:hover { background: #0b5ed7; }
+                .error { padding: .65rem .75rem; margin-bottom: 1rem; border-radius: .3rem; background: #f8d7da; color: #842029; }
+            </style>
+        </head>
+        <body>
+            <main>
+                <h1>WebDAV File Manager</h1>
+                {{errorHtml}}
+                <form method="post" action="/login">
+                    <input type="hidden" name="__RequestVerificationToken" value="{{encodedToken}}">
+                    <input type="hidden" name="returnUrl" value="{{encodedReturnUrl}}">
+                    <label for="username">Username</label>
+                    <input id="username" name="username" autocomplete="username" autofocus required>
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" autocomplete="current-password">
+                    <button type="submit">Sign in</button>
+                </form>
+            </main>
+        </body>
+        </html>
+        """;
+}

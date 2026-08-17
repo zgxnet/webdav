@@ -415,8 +415,13 @@ main {
 }
 
 .top-bar-logout {
+    padding: 0;
+    border: 0;
+    background: transparent;
     color: #6c757d;
     text-decoration: none;
+    font: inherit;
+    cursor: pointer;
 }
 
 .top-bar-logout:hover {

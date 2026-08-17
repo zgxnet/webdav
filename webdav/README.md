@@ -306,7 +306,7 @@ cadaver http://localhost:6065/dav
 
 Access the Blazor file manager interface at: `http://localhost:6065/`
 
-When authentication is enabled, the top bar shows the signed-in username and a **Logout** link. Because the UI uses HTTP Basic Auth, logout works by asking the browser to discard its cached credentials: if the browser prompts for credentials after clicking Logout, choose **Cancel**, then use the *Sign in again* link to log in as a different user.
+When authentication is enabled, the web UI uses a cookie-backed sign-in page and the top bar shows the signed-in username and a **Logout** button. Signing out clears the UI session so you can immediately sign in as the same or a different user. WebDAV clients under `/dav` continue to use HTTP Basic authentication.
 
 ## Security Notes
 
