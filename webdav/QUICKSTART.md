@@ -146,6 +146,7 @@ The Blazor-based file manager provides a graphical interface to:
 - Upload and download files
 - Create new folders
 - Delete files and folders
+- Preview text, image, and PDF files in the browser
 - All operations respect the same authentication and permissions as WebDAV
 
 ### 6. Generating BCrypt Passwords

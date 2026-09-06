@@ -381,7 +381,9 @@ public class FileManagerService
             ".py", ".rb", ".go", ".rs", ".php", ".yml", ".yaml", 
             ".ini", ".conf", ".config", ".log", ".sh", ".bat", ".ps1",
             // Image extensions
-            ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico"
+            ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico",
+            // Documents
+            ".pdf"
         };
         return previewableExtensions.Contains(extension);
     }
@@ -394,6 +396,11 @@ public class FileManagerService
             ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico"
         };
         return imageExtensions.Contains(extension);
+    }
+
+    public bool IsPdf(string fileName)
+    {
+        return string.Equals(Path.GetExtension(fileName), ".pdf", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<byte[]?> ReadFileAsBytesAsync(string relativePath, int maxSizeMB = 10)
@@ -431,6 +438,8 @@ public class FileManagerService
 
     public sealed record ImageFileResult(string FullPath, string ContentType);
 
+    public sealed record PdfFileResult(string FullPath, string ContentType);
+
     public sealed record ImageInfoResult(int Width, int Height);
 
     public ImageFileResult? GetImageFile(string relativePath)
@@ -446,6 +455,23 @@ public class FileManagerService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Unable to resolve image preview for: {Path}", relativePath);
+            return null;
+        }
+    }
+
+    public PdfFileResult? GetPdfFile(string relativePath)
+    {
+        try
+        {
+            EnsureAllowed("GET", relativePath);
+            var fullPath = GetFullPath(relativePath);
+            return File.Exists(fullPath) && IsPdf(fullPath)
+                ? new PdfFileResult(fullPath, "application/pdf")
+                : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to resolve PDF preview for: {Path}", relativePath);
             return null;
         }
     }
@@ -580,6 +606,7 @@ public class FileManagerService
             ".webp" => "image/webp",
             ".svg" => "image/svg+xml",
             ".ico" => "image/x-icon",
+            ".pdf" => "application/pdf",
             _ => "application/octet-stream"
         };
     }

@@ -118,6 +118,10 @@
                                     {
                                         <i class="bi bi-file-earmark-image text-primary"></i>
                                     }
+                                    else if (FileService.IsPdf(file.Name))
+                                    {
+                                        <i class="bi bi-file-earmark-pdf text-danger"></i>
+                                    }
                                     else
                                     {
                                         <i class="bi bi-file-earmark"></i>
@@ -184,6 +188,12 @@
                                     <img src="@GetThumbnailUrl(file)" alt="" class="file-thumbnail" loading="lazy" />
                                 </button>
                             }
+                            else if (FileService.IsPdf(file.Name))
+                            {
+                                <button type="button" class="file-tile-open" @onclick="() => PreviewFile(file.Path, file.Name)" aria-label="Preview @file.Name">
+                                    <i class="bi bi-file-earmark-pdf file-tile-file text-danger"></i>
+                                </button>
+                            }
                             else
                             {
                                 <button type="button" class="file-tile-open" disabled="@(!FileService.IsPreviewable(file.Name))"
@@ -245,6 +255,8 @@
     ImageWidth="@previewImageWidth"
     ImageHeight="@previewImageHeight"
     IsImage="@isPreviewImage"
+    IsPdf="@isPreviewPdf"
+    PdfPath="@previewPdfPath"
     OnClose="@ClosePreview" />
 
 @code {
@@ -269,6 +281,8 @@
     private int previewImageWidth;
     private int previewImageHeight;
     private bool isPreviewImage = false;
+    private bool isPreviewPdf = false;
+    private string previewPdfPath = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -420,6 +434,7 @@
             previewFileName = fileName;
             previewFileExtension = FileService.GetFileExtension(fileName);
             isPreviewImage = FileService.IsImage(fileName);
+            isPreviewPdf = FileService.IsPdf(fileName);
             showPreview = true;
             
             StateHasChanged(); // Force UI update
@@ -431,12 +446,22 @@
                 previewImageWidth = imageInfo?.Width ?? 0;
                 previewImageHeight = imageInfo?.Height ?? 0;
                 previewContent = string.Empty;
+                previewPdfPath = string.Empty;
+            }
+            else if (isPreviewPdf)
+            {
+                previewPdfPath = path;
+                previewImagePath = string.Empty;
+                previewImageWidth = 0;
+                previewImageHeight = 0;
+                previewContent = string.Empty;
             }
             else
             {
                 // Load text content
                 previewContent = "Loading...";
                 previewImagePath = string.Empty;
+                previewPdfPath = string.Empty;
                 var content = await FileService.ReadFileContentAsync(path);
                 previewContent = content ?? "Unable to load file content.";
             }
@@ -446,6 +471,7 @@
             Logger.LogError(ex, "Error previewing file");
             previewContent = $"Error loading preview: {ex.Message}";
             previewImagePath = string.Empty;
+            previewPdfPath = string.Empty;
         }
     }
 
@@ -464,6 +490,8 @@
         previewImageWidth = 0;
         previewImageHeight = 0;
         isPreviewImage = false;
+        isPreviewPdf = false;
+        previewPdfPath = string.Empty;
         StateHasChanged(); // Force UI update
         await Task.CompletedTask;
     }

@@ -5,7 +5,7 @@ A simple and standalone WebDAV server implementation in C# ASP.NET Core, based o
 ## Features
 
 - ✅ Full WebDAV support (GET, PUT, DELETE, PROPFIND, MKCOL, COPY, MOVE, etc.)
-- ✅ Blazor file manager web UI
+- ✅ Blazor file manager web UI with text, image, and PDF previews
 - ✅ Basic authentication with multiple users
 - ✅ BCrypt password support
 - ✅ Fine-grained permission control (Create, Read, Update, Delete)

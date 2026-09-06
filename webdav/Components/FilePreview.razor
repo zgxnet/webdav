@@ -15,7 +15,7 @@
                     </h5>
                     <button type="button" class="btn-close" @onclick="Close" aria-label="Close"></button>
                 </div>
-                <div class="modal-body @(IsImage ? "image-modal-body" : null)">
+                <div class="modal-body @(IsImage ? "image-modal-body" : IsPdf ? "pdf-modal-body" : null)">
                     @if (isLoading)
                     {
                         <div class="text-center p-4">
@@ -40,6 +40,10 @@
                                 </div>
                             }
                         </div>
+                    }
+                    else if (IsPdf)
+                    {
+                        <iframe src="@PdfUrl" class="pdf-preview-frame" title="PDF preview: @FileName"></iframe>
                     }
                     else if (!string.IsNullOrEmpty(Content))
                     {
@@ -84,6 +88,12 @@
                             <i class="bi @(showOriginal ? "bi-zoom-out" : "bi-zoom-in")"></i>
                         </button>
                     }
+                    @if (IsPdf)
+                    {
+                        <a class="btn btn-outline-primary" href="@PdfUrl" target="_blank" rel="noopener">
+                            <i class="bi bi-box-arrow-up-right"></i> Open in new tab
+                        </a>
+                    }
                     <button type="button" class="btn btn-secondary" @onclick="Close">Close</button>
                 </div>
             </div>
@@ -117,6 +127,12 @@
     public bool IsImage { get; set; }
 
     [Parameter]
+    public bool IsPdf { get; set; }
+
+    [Parameter]
+    public string PdfPath { get; set; } = string.Empty;
+
+    [Parameter]
     public EventCallback OnClose { get; set; }
 
     private bool isLoading = false;
@@ -133,6 +149,7 @@
     private DotNetObjectReference<FilePreview>? componentReference;
 
     private bool IsMarkdown => FileExtension is "md" or "markdown";
+    private string PdfUrl => $"/api/pdf?path={Uri.EscapeDataString(PdfPath)}";
     private string OriginalImageUrl => BuildImageUrl(ImagePath);
     private string CurrentImageUrl => showOriginal ? OriginalImageUrl : fitImageUrl;
 

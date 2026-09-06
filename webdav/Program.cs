@@ -236,6 +236,20 @@ app.MapGet("/api/image", (
     return Results.File(image.FullPath, image.ContentType, enableRangeProcessing: true);
 });
 
+app.MapGet("/api/pdf", (
+    string path,
+    FileManagerService fileService,
+    HttpContext context) =>
+{
+    fileService.SetCurrentUser((context.Items["WebDavUser"] as UserService.UserInfo)?.Username);
+    var pdf = fileService.GetPdfFile(path);
+    if (pdf == null)
+        return Results.NotFound();
+
+    context.Response.Headers.CacheControl = "private, max-age=0, must-revalidate";
+    return Results.File(pdf.FullPath, pdf.ContentType, enableRangeProcessing: true);
+});
+
 app.MapGet("/login", (HttpContext context, IAntiforgery antiforgery) =>
 {
     if (!userService.HasUsers || context.User.Identity?.IsAuthenticated == true)
